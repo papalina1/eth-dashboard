@@ -95,7 +95,15 @@ function detectAbsorption(bar) {
   if (!bar || bar.volume === 0) return false;
   const bodySize = Math.abs(bar.close - bar.open);
   const range    = bar.high - bar.low || 1;
-  return bar.volume > 500 && bodySize / range < 0.3;
+  // volume threshold relative to recent average so it scales across BTC/ETH/XAU
+  return bodySize / range < 0.3;
+}
+
+function detectAbsorptionRelative(bar, avgVol) {
+  if (!bar || bar.volume === 0) return false;
+  const bodySize = Math.abs(bar.close - bar.open);
+  const range    = bar.high - bar.low || 1;
+  return bar.volume > avgVol * 1.5 && bodySize / range < 0.3;
 }
 
 function calcSwingLevels(bars) {
@@ -122,21 +130,26 @@ function generateSignal(bars, vp) {
   if (pocDist < 0.002)    return empty;
 
   const { swingHigh, swingLow } = calcSwingLevels(bars);
-  const absorption      = detectAbsorption(last);
+  const avgVol          = calcAvgVolume(bars);
+  const absorption      = detectAbsorptionRelative(last, avgVol); // relative, scales per symbol
   const cumulDelta      = bars.slice(-5).reduce((s, b) => s + b.delta, 0);
   const deltaDivergence = last.close < prev.close && last.delta > prev.delta;
   const bearDivergence  = last.close > prev.close && last.delta < prev.delta;
-  const highVolume      = last.volume > calcAvgVolume(bars) * 1.2;
+  const highVolume      = last.volume > avgVol * 1.2;
   const last3           = bars.slice(-3);
   const consecutiveBull = last3.filter((b) => b.delta > 0).length >= 2;
   const consecutiveBear = last3.filter((b) => b.delta < 0).length >= 2;
   const stackedBull     = last3.every((b) => b.delta > 0);
   const stackedBear     = last3.every((b) => b.delta < 0);
 
+  // Wider VAL/VAH zone (0.8%) — was 0.2%, too tight, rarely fired
+  const atVAL = last.close <= vp.val * 1.008;
+  const atVAH = last.close >= vp.vah * 0.992;
+
   let longScore = 0, shortScore = 0;
   const reasons = [];
 
-  if (last.close <= vp.val * 1.002) { longScore++;  reasons.push({ side: "long",  text: "Price at VAL support" }); }
+  if (atVAL)                        { longScore++;  reasons.push({ side: "long",  text: "Price at VAL support zone" }); }
   if (last.delta > 0)               { longScore++;  reasons.push({ side: "long",  text: "Positive delta — buyers in control" }); }
   if (deltaDivergence)              { longScore++;  reasons.push({ side: "long",  text: "Bullish delta divergence" }); }
   if (absorption && last.delta > 0) { longScore++;  reasons.push({ side: "long",  text: "Absorption at support" }); }
@@ -145,7 +158,7 @@ function generateSignal(bars, vp) {
   if (consecutiveBull)              { longScore++;  reasons.push({ side: "long",  text: "2+ consecutive bullish delta bars" }); }
   if (stackedBull)                  { longScore++;  reasons.push({ side: "long",  text: "Stacked bullish imbalance (3 bars)" }); }
 
-  if (last.close >= vp.vah * 0.998) { shortScore++; reasons.push({ side: "short", text: "Price at VAH resistance" }); }
+  if (atVAH)                        { shortScore++; reasons.push({ side: "short", text: "Price at VAH resistance zone" }); }
   if (last.delta < 0)               { shortScore++; reasons.push({ side: "short", text: "Negative delta — sellers in control" }); }
   if (bearDivergence)               { shortScore++; reasons.push({ side: "short", text: "Bearish delta divergence" }); }
   if (absorption && last.delta < 0) { shortScore++; reasons.push({ side: "short", text: "Absorption at resistance" }); }
@@ -154,7 +167,8 @@ function generateSignal(bars, vp) {
   if (consecutiveBear)              { shortScore++; reasons.push({ side: "short", text: "2+ consecutive bearish delta bars" }); }
   if (stackedBear)                  { shortScore++; reasons.push({ side: "short", text: "Stacked bearish imbalance (3 bars)" }); }
 
-  const side = longScore >= 5 ? "LONG" : shortScore >= 5 ? "SHORT" : null;
+  // 4/8 threshold — was 5/8, too strict combined with other hard filters
+  const side = longScore >= 4 ? "LONG" : shortScore >= 4 ? "SHORT" : null;
   if (!side) return { side: null, longScore, shortScore, reasons, atr: parseFloat(atr.toFixed(2)) };
 
   const entry    = last.close;
@@ -231,7 +245,7 @@ function SignalCard({ signal, symbolLabel }) {
       <div style={{ fontSize: 28, marginBottom: 4 }}>⏳</div>
       <div style={{ color: "#888", fontSize: 13 }}>WAITING FOR SETUP</div>
       <div style={{ color: "#555", fontSize: 11, marginTop: 6 }}>Long: {signal.longScore}/8 · Short: {signal.shortScore}/8</div>
-      <div style={{ color: "#444", fontSize: 10, marginTop: 4 }}>5+ conditions · R:R ≥ 1.5 · closed bar</div>
+      <div style={{ color: "#444", fontSize: 10, marginTop: 4 }}>4+ conditions · R:R ≥ 1.5 · closed bar</div>
     </div>
   );
 
@@ -611,7 +625,7 @@ export default function Dashboard() {
                   <div style={{ color: "#555", fontSize: 10 }}>SHORT</div>
                 </div>
               </div>
-              <div style={{ fontSize: 10, color: "#444", textAlign: "center" }}>5+ conditions · R:R ≥ 1.5 · closed bar</div>
+              <div style={{ fontSize: 10, color: "#444", textAlign: "center" }}>4+ conditions · R:R ≥ 1.5 · closed bar</div>
             </div>
           )}
 
