@@ -91,14 +91,6 @@ function calcAvgVolume(bars, period = 20) {
   return slice.reduce((s, b) => s + b.volume, 0) / slice.length;
 }
 
-function detectAbsorption(bar) {
-  if (!bar || bar.volume === 0) return false;
-  const bodySize = Math.abs(bar.close - bar.open);
-  const range    = bar.high - bar.low || 1;
-  // volume threshold relative to recent average so it scales across BTC/ETH/XAU
-  return bodySize / range < 0.3;
-}
-
 function detectAbsorptionRelative(bar, avgVol) {
   if (!bar || bar.volume === 0) return false;
   const bodySize = Math.abs(bar.close - bar.open);
@@ -425,7 +417,7 @@ export default function Dashboard() {
 
   const selectedSym  = SYMBOLS.find((s) => s.id === selectedId);
   const { tick, decimals, label: symbolLabel } = selectedSym;
-  const { bars, vp, signal, signalHistory, currentPrice } = display;
+  const { bars, vp, signal, signalHistory } = display;
   const displayBars  = bars.slice(-12);
   const vpMax        = vp ? Math.max(...vp.entries.map((e) => e.vol)) : 1;
 
